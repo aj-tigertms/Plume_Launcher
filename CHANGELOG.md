@@ -21,6 +21,12 @@ Put changes that are not released under `## Unreleased`. Rename that heading to 
 - **More logos.** Plex, BBC iPlayer, ITVX, Channel 4, Mullvad VPN and WireGuard get monochrome logos.
 - Plume checks this fork's releases for updates, once a day.
 
+## 1.4.2
+
+- **Apps at the bottom.** The app row is at the bottom of the screen. Continue Watching is above it.
+- **Continue Watching for the selected app.** Select an app in the row. The row above shows only that app's shows and films. An app with nothing to continue shows no row.
+- **Smaller cards.** Each Continue Watching card is one app tile wide, so eight fit across the screen.
+
 ## Unreleased
 
 - **Android 8:** Plume opens on Android 8.0 and 8.1. Before, it closed immediately after it opened.

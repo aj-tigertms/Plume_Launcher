@@ -1549,7 +1549,7 @@ class MainActivity : Activity() {
             t.setOnFocusChangeListener { v, focused ->
                 own.onFocusChange(v, focused)
                 if (focused) lastApp = v
-                if (focused) showPlexRow(v.tag == Plex.PKG)
+                if (focused) showRowFor(v.tag as? String)
                 showRowLabel(v, focused)
             }
         }
@@ -1786,7 +1786,7 @@ class MainActivity : Activity() {
     }
 
     /**
-     * The home screen is three rows: top bar, apps, Continue Watching. Left/Right stay inside a row and
+     * The home screen is three rows: top bar, Continue Watching, apps. Left/Right stay inside a row and
      * stop at its ends; Up/Down move between rows and land where you last were in that row, not on
      * whatever happens to sit nearest on screen. Returns the view to focus (itself = stay), or null to
      * let Android handle the key.
@@ -1799,15 +1799,15 @@ class MainActivity : Activity() {
         val top = alive(lastTop) ?: findViewById(R.id.launcherSettings)
         return when {
             v.parent === wifi.parent -> when (key) { // top bar
-                KeyEvent.KEYCODE_DPAD_DOWN -> apps ?: cards ?: v // the apps row can be empty (all hidden)
+                KeyEvent.KEYCODE_DPAD_DOWN -> cards ?: apps ?: v // the apps row can be empty (all hidden)
                 KeyEvent.KEYCODE_DPAD_UP -> v
                 KeyEvent.KEYCODE_DPAD_LEFT -> if (v.id == R.id.wifi) v else null
                 KeyEvent.KEYCODE_DPAD_RIGHT -> if (v.id == R.id.launcherSettings) v else null
                 else -> null
             }
             v.parent === appRow -> when (key) {
-                KeyEvent.KEYCODE_DPAD_UP -> top
-                KeyEvent.KEYCODE_DPAD_DOWN -> cards ?: v
+                KeyEvent.KEYCODE_DPAD_UP -> cards ?: top
+                KeyEvent.KEYCODE_DPAD_DOWN -> v
                 KeyEvent.KEYCODE_DPAD_LEFT -> if (appRow.indexOfChild(v) == 0) v else null
                 KeyEvent.KEYCODE_DPAD_RIGHT -> if (appRow.indexOfChild(v) == appRow.childCount - 1) v else null
                 else -> null
@@ -1815,8 +1815,8 @@ class MainActivity : Activity() {
             v.getTag(R.id.watchRow) is Prog -> {
                 val i = watchRow.indexOfChild(v.parent as View)
                 when (key) {
-                    KeyEvent.KEYCODE_DPAD_UP -> apps ?: top
-                    KeyEvent.KEYCODE_DPAD_DOWN -> v
+                    KeyEvent.KEYCODE_DPAD_UP -> top
+                    KeyEvent.KEYCODE_DPAD_DOWN -> apps ?: v
                     KeyEvent.KEYCODE_DPAD_LEFT -> if (i == 0) v else null
                     KeyEvent.KEYCODE_DPAD_RIGHT -> if (i == watchRow.childCount - 1) v else null
                     else -> null
@@ -2493,19 +2493,39 @@ class MainActivity : Activity() {
         }
     }
 
-    /** The system's Continue Watching; kept while the row shows Plex instead, for when focus leaves Plex. */
+    // ---------- the row above the apps: the focused app's Continue Watching ----------
+    // Not one shared list: the row shows what the focused row app has to resume (Plex: its On Deck, see Plex.kt),
+    // and hides for an app with nothing. It changes as focus moves along the apps, and stays put while focus
+    // is on the cards themselves or the top bar.
+
+    /** Everything the system's Watch Next and apps' Continue Watching channels have, newest first. */
     private var generalWatch = emptyList<Prog>()
+    private var plexDeck = emptyList<Prog>()
+    /** The row app whose items the row shows; null before any app had focus. */
+    private var rowApp: String? = null
 
     private fun showGeneralWatch(list: List<Prog>) {
         generalWatch = list
-        if (!rowShowsPlex) showWatchNext(list)
+        if (rowApp != Plex.PKG) showRowFor(rowApp, force = true)
     }
 
-    // ---------- Plex On Deck (see Plex.kt) ----------
-    // While the Plex tile has focus, the row under the apps shows Plex's On Deck instead of Continue Watching.
-
-    private var plexDeck = emptyList<Prog>()
-    private var rowShowsPlex = false
+    private fun showRowFor(pkg: String?, force: Boolean = false) {
+        if (pkg == rowApp && !force) return
+        val changed = pkg != rowApp
+        rowApp = pkg
+        val list = when {
+            pkg == null -> emptyList()
+            pkg == Plex.PKG && Plex.signedIn(prefs) -> plexDeck
+            else -> generalWatch.filter { it.pkg == pkg }.take(MAX_ROW)
+        }
+        watchTitle.setText(if (pkg == Plex.PKG && Plex.signedIn(prefs)) R.string.plex_on_deck else R.string.continue_watching)
+        val before = watchKey
+        showWatchNext(list)
+        if (changed && watchKey != before && list.isNotEmpty()) { // a soft change, not a jump, as focus moves along the apps
+            watchScroll.alpha = 0f
+            watchScroll.animate().alpha(1f).setDuration(200).start()
+        }
+    }
 
     private fun refreshPlex() {
         if (!Plex.signedIn(prefs)) return
@@ -2522,20 +2542,9 @@ class MainActivity : Activity() {
             }
             ui.post {
                 plexDeck = list
-                if (rowShowsPlex) if (list.isEmpty()) showPlexRow(false) else showWatchNext(list)
+                if (rowApp == Plex.PKG) showRowFor(Plex.PKG, force = true)
             }
         }
-    }
-
-    /** Called as focus lands on a row app: Plex swaps its On Deck in, any other app puts Continue Watching back. */
-    private fun showPlexRow(plex: Boolean) {
-        val want = plex && plexDeck.isNotEmpty()
-        if (want == rowShowsPlex) return
-        rowShowsPlex = want
-        watchTitle.setText(if (want) R.string.plex_on_deck else R.string.continue_watching)
-        showWatchNext(if (want) plexDeck else generalWatch)
-        watchScroll.alpha = 0f
-        watchScroll.animate().alpha(1f).setDuration(200).start()
     }
 
     private fun plexAccount() {
@@ -2544,7 +2553,7 @@ class MainActivity : Activity() {
             page(getString(R.string.plex_sign_out)) {
                 Plex.signOut(prefs)
                 plexDeck = emptyList()
-                showPlexRow(false)
+                showRowFor(rowApp, force = true)
                 renderSettings(R.string.plex_account)
             },
         )) { renderSettings(R.string.plex_account) }
@@ -2630,7 +2639,7 @@ class MainActivity : Activity() {
      *    progress and an autoPlay resume link) instead of using Watch Next, so signing in to Stremio
      *    on the TV is all it takes. Channel rows carry no timestamps, so they use the time the app was
      *    last opened from Plume, keeping the app's own order among themselves.
-     * Newest first across apps, each app's [PER_APP] newest ahead of the rest, so one app with ten shows can't bury the others.
+     * Newest first. All of them: the row shows one app's at a time (see showRowFor).
      */
     private fun queryWatchNext(): List<Prog> {
         val hidden = prefs.getStringSet("hidden_watch", emptySet())!!
@@ -2641,8 +2650,8 @@ class MainActivity : Activity() {
         val all = watchNext + channels
         publishingPkgs = all.mapNotNull { it.second.pkg }.toSet()
         val off = prefs.getStringSet("cw_off", emptySet())!!
-        return newestPerApp(all.filter { it.second.pkg !in off }.distinctBy { it.second.intent ?: it.second.title }, PER_APP) { it.pkg }
-            .take(20)
+        return all.filter { it.second.pkg !in off }.distinctBy { it.second.intent ?: it.second.title }
+            .sortedByDescending { it.first }.map { it.second }
     }
 
     /** Apps last seen publishing, so the settings list includes them even without the permission check. */
@@ -2722,17 +2731,6 @@ class MainActivity : Activity() {
         refreshWatchNext()
     }
 
-    /** Small source-app mark for the details line: black logo when we have one, else greyscale icon. */
-    private fun sourceIcon(pkg: String?): Drawable? {
-        if (pkg == null) return null
-        LOGOS[pkg]?.takeIf { !it.second }?.let { return getDrawable(it.first)!!.mutate().apply { setTint(fg) } }
-        return try {
-            packageManager.getApplicationIcon(pkg).mutate().apply { colorFilter = GREYSCALE }
-        } catch (e: PackageManager.NameNotFoundException) {
-            null
-        }
-    }
-
     private fun timeLeft(ms: Long): String {
         val min = ms / 60_000
         return if (min >= 60) getString(R.string.time_left_hm, min / 60, min % 60) else getString(R.string.time_left_m, min)
@@ -2751,8 +2749,8 @@ class MainActivity : Activity() {
         val visible = if (list.isEmpty()) View.GONE else View.VISIBLE
         watchTitle.visibility = visible
         watchScroll.visibility = visible
-        // ~16 ms per card here and only four show at once: the first four now, the next four on the next frame.
-        addCardsTo(3)
+        // ~16 ms per card here: the first half of a screenful now, the rest on the next frame.
+        addCardsTo(ROW_TILES / 2 - 1)
         ui.post { if (watchKey == key) addCardsTo(CARDS_AHEAD - 1) } // unless a newer list replaced this one
         if (focusedAt >= 0) {
             ((watchRow.getChildAt(focusedAt.coerceAtMost(watchRow.childCount - 1)) as? LinearLayout)?.getChildAt(0)
@@ -2763,7 +2761,7 @@ class MainActivity : Activity() {
     private var watchList = emptyList<Prog>()
 
     /**
-     * Cards exist up to index [last] only: the four on screen and the four after them, more as focus moves on.
+     * Cards exist up to index [last] only: the ones on screen and a few after them, more as focus moves on.
      * Every card costs drawing time on each frame of the home screen (20 dropped ~6% of frames on the test
      * TV, 8 about 2%), on screen or not, so the rest of the list waits until focus gets near.
      */
@@ -2774,12 +2772,12 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Four posters across, each two apps-row columns wide. Progress sits on the artwork's bottom edge;
-     * title and details (source, episode, time left) go underneath.
+     * Small posters, each exactly one app tile wide, so the row lines up with the apps under it.
+     * Progress sits under the artwork; title and details (episode, time left) go underneath.
      */
     private fun watchCard(p: Prog, gapBefore: Boolean): View {
         val gap = dp(GRID_GAP)
-        val w = (resources.displayMetrics.widthPixels - dp(96) - gap * 3) / 4
+        val w = (resources.displayMetrics.widthPixels - dp(96) - gap * (ROW_TILES - 1)) / ROW_TILES
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             clipChildren = false
@@ -2792,8 +2790,8 @@ class MainActivity : Activity() {
             setBackgroundColor(if (dark) DARK_SURFACE else 0xFFDDE1E5.toInt())
         }
         // Long titles scroll while their poster is focused instead of staying cut off.
-        val title = label(p.title, 14f).apply {
-            setPadding(0, dp(6), 0, 0)
+        val title = label(p.title, 12f).apply {
+            setPadding(0, dp(4), 0, 0)
             isSingleLine = true
             ellipsize = TextUtils.TruncateAt.MARQUEE
             marqueeRepeatLimit = -1
@@ -2818,20 +2816,13 @@ class MainActivity : Activity() {
             progress = p.progress
             progressDrawable = progressBarDrawable()
             visibility = if (p.progress > 0) View.VISIBLE else View.INVISIBLE
-        }, LinearLayout.LayoutParams(w, dp(3)).apply { topMargin = dp(8) })
+        }, LinearLayout.LayoutParams(w, dp(3)).apply { topMargin = dp(6) })
         col.addView(title)
-        val icon = sourceIcon(p.pkg)
-        if (p.sub.isNotEmpty() || icon != null) {
-            col.addView(label(p.sub, 12f).apply {
-                alpha = 0.8f
-                setPadding(0, dp(2), 0, 0)
-                icon?.let {
-                    it.setBounds(0, 0, dp(12), dp(12))
-                    setCompoundDrawablesRelative(it, null, null, null)
-                    compoundDrawablePadding = dp(6)
-                }
-            })
-        }
+        // No source mark: the row only ever holds the focused app's items. Kept (blank) so every card is one height.
+        col.addView(label(p.sub, 11f).apply {
+            alpha = 0.8f
+            setPadding(0, dp(1), 0, 0)
+        })
         loadPoster(img, p.image)
         return col
     }
@@ -2889,7 +2880,7 @@ class MainActivity : Activity() {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         var sample = 1
-        while (bounds.outWidth / (sample * 2) >= dp(220)) sample *= 2
+        while (bounds.outWidth / (sample * 2) >= dp(120)) sample *= 2 // a card is about 100dp wide
         val opts = BitmapFactory.Options().apply {
             inSampleSize = sample
             inPreferredConfig = Bitmap.Config.RGB_565
@@ -3004,8 +2995,8 @@ class MainActivity : Activity() {
         const val PIN_TRIES = 5 // wrong PINs before a 30 s wait
         const val UNLOCKED_MS = 5 * 60_000L
         const val MEDIA_REQUEST = 3
-        const val PER_APP = 3 // Continue Watching items per app ahead of the rest
-        const val CARDS_AHEAD = 8 // Continue Watching cards built past the focused one (see addCardsTo)
+        const val CARDS_AHEAD = 10 // Continue Watching cards built past the focused one (see addCardsTo)
+        const val MAX_ROW = 20 // Continue Watching items for one app
         val READ_PHOTOS = if (Build.VERSION.SDK_INT >= 33) "android.permission.READ_MEDIA_IMAGES" else "android.permission.READ_EXTERNAL_STORAGE"
         /** Minutes between folder photos. */
         val PHOTO_EVERY = linkedMapOf(

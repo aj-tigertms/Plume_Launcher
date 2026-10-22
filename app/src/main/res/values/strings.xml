@@ -138,6 +138,17 @@
     <string name="all_apps">All apps</string>
     <string name="settings">Settings</string>
     <string name="continue_watching">Continue Watching</string>
+    <string name="plex_on_deck">On Deck</string>
+    <string name="plex_account">Plex On Deck</string>
+    <string name="plex_signed_in_row">Signed in</string>
+    <string name="plex_sign_in_row">Sign in</string>
+    <string name="plex_sign_in_title">Sign in to Plex</string>
+    <string name="plex_link_hint">On your phone or computer, go to %1$s and enter this code. On Deck then shows under the apps while Plex is selected.</string>
+    <string name="plex_getting_code">Getting a code…</string>
+    <string name="plex_waiting">Waiting for the code to be entered…</string>
+    <string name="plex_failed">Couldn\'t reach Plex. Check the connection and try again.</string>
+    <string name="plex_signed_in">Signed in to Plex as %1$s</string>
+    <string name="plex_sign_out">Sign out of Plex</string>
     <!-- Shown in Android's Accessibility list. The two "Turn on/off" hints quote it, so keep them the same. -->
     <string name="home_service_label">Plume: Home button</string>
     <string name="theme_light">Light</string>
@@ -183,4 +194,6 @@
     <string name="section_screensaver">Screensaver</string>
     <string name="section_home">Home button</string>
     <string name="bing_daily">Bing picture of the day</string>
+    <string name="aerial_collection">Aerial video (%1$s)</string>
+    <string name="aerial_all">Aerial video (all)</string>
 </resources>

@@ -14,6 +14,13 @@ Write every entry in ASD-STE100 Simplified Technical English:
 
 Put changes that are not released under `## Unreleased`. Rename that heading to the version number when you release.
 
+## 1.4.1
+
+- **Aerial video wallpaper.** Choose **Aerial video** in **Light mode wallpaper** or **Dark mode wallpaper**. Plume plays Apple TV and Fire TV flyovers behind the home screen.
+- **Plex On Deck.** Select the Plex app in the row. The row under the apps shows your Plex On Deck. Sign in at **Continue Watching → Plex On Deck**.
+- **More logos.** Plex, BBC iPlayer, ITVX, Channel 4, Mullvad VPN and WireGuard get monochrome logos.
+- Plume checks this fork's releases for updates, once a day.
+
 ## Unreleased
 
 - **Android 8:** Plume opens on Android 8.0 and 8.1. Before, it closed immediately after it opened.

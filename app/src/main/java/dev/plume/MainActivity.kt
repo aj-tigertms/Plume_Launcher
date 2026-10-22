@@ -160,6 +160,25 @@ internal fun hdmiIcon(name: String, named: Boolean): String {
 }
 
 /** Soundbars and AV receivers name themselves over CEC too, but there's nothing to switch to. */
+/**
+ * What a picture wallpaper gets painted over it so the home screen stays readable on any photo or video.
+ * [fade]: the bundled wallpapers' fade, clear above 28% height, into the background colour [ground] by 50%.
+ * Always: photos rarely have the bundled ones' empty sky, so a soft veil sits behind the clock and top-bar
+ * icons, strong over them (top ~20%) and gone by 30% so the picture still shows above the apps.
+ */
+internal fun paintShades(c: Canvas, w: Float, h: Float, ground: Int, fade: Boolean) {
+    val base = ground and 0x00FFFFFF
+    if (fade) c.drawRect(0f, 0f, w, h, Paint().apply {
+        isDither = true
+        shader = LinearGradient(0f, h * 0.28f, 0f, h * 0.5f, base, base or 0xE6000000.toInt(), Shader.TileMode.CLAMP)
+    })
+    c.drawRect(0f, 0f, w, h * 0.3f, Paint().apply {
+        isDither = true
+        shader = LinearGradient(0f, 0f, 0f, h * 0.3f, intArrayOf(base or 0xC0000000.toInt(), base or 0xA0000000.toInt(), base),
+            floatArrayOf(0f, 0.6f, 1f), Shader.TileMode.CLAMP)
+    })
+}
+
 internal fun isAudioDevice(name: String) = name.lowercase().let { n -> AUDIO_WORDS.any { it in n } }
 
 /** A plain HDMI port (no CEC name) is in the home row only while it has a signal, unless it was pinned by hand. */
@@ -185,6 +204,7 @@ class MainActivity : Activity() {
     private val posterIo = Executors.newFixedThreadPool(3)
     private val loading = java.util.Collections.synchronizedSet(HashSet<String>())
     private val ui = Handler(Looper.getMainLooper())
+    private val plexIo = Executors.newSingleThreadExecutor() // Plex servers can be slow or far away; keep them off io
     private val posters = object : LruCache<String, Bitmap>(6 * 1024 * 1024) {
         override fun sizeOf(key: String, value: Bitmap) = value.byteCount
     }
@@ -295,6 +315,8 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        resumed = true
+        startAerial()
         ensureHomeService()
         homeSetupResumed()
         if (wantDark() != dark) {
@@ -341,6 +363,8 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
+        resumed = false
+        stopAerial() // frees the video decoder and stops streaming while an app is open
         ui.removeCallbacks(weatherTick)
         ui.removeCallbacks(themeTick)
         ui.removeCallbacks(wallpaperTick)
@@ -365,7 +389,9 @@ class MainActivity : Activity() {
         applicationContext.getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(net)
         getSystemService(TvInputManager::class.java)?.unregisterCallback(inputCallback)
         upload?.stop()
+        stopAerial()
         io.shutdownNow()
+        plexIo.shutdownNow()
         posterIo.shutdownNow()
         super.onDestroy()
     }
@@ -695,6 +721,7 @@ class MainActivity : Activity() {
     private fun wallpaperChoices(forDark: Boolean): List<Pair<String, String>> =
         listOf(plainWallpaper(forDark).let { wallpaperName(it) to it }) +
             BUNDLED_WALLPAPERS.keys.map { wallpaperName("res:$it") to "res:$it" } +
+            Aerials.COLLECTIONS.keys.map { wallpaperName(Aerials.PREFIX + it) to Aerials.PREFIX + it } +
             (wallpaperName(Bing.CHOICE) to Bing.CHOICE) +
             (wallpaperDir()?.listFiles { f -> f.extension.lowercase() in setOf("jpg", "jpeg", "png", "webp") }
                 ?.sortedBy { it.name }?.map { it.nameWithoutExtension to "file:${it.name}" } ?: emptyList()) +
@@ -713,6 +740,8 @@ class MainActivity : Activity() {
 
     private fun wallpaperName(choice: String) = when {
         choice == Bing.CHOICE -> getString(R.string.bing_daily)
+        choice.startsWith(Aerials.PREFIX) -> Aerials.COLLECTIONS[choice.removePrefix(Aerials.PREFIX)]
+            ?.let { getString(R.string.aerial_collection, it) } ?: getString(R.string.aerial_all)
         choice.startsWith("folder:") -> getString(R.string.folder_name, choice.substringAfter(':').substringAfter(':'))
         else -> choice.substringAfter(':').substringBeforeLast('.').let { n -> WALLPAPER_NAMES[n]?.let { getString(it) } ?: n }
     }
@@ -720,6 +749,8 @@ class MainActivity : Activity() {
     private fun loadWallpaper() {
         val view = findViewById<ImageView>(R.id.wallpaper)
         val choice = currentWallpaper()
+        stopAerial() // restarted with the current choice and shading; the still below shows until its first frame
+        startAerial()
         if (choice.startsWith("plain:")) { // the root's ground colour shows through
             view.setImageDrawable(null)
             return
@@ -746,6 +777,7 @@ class MainActivity : Activity() {
     }
 
     private fun decodeWallpaper(choice: String): Bitmap? {
+        if (choice.startsWith(Aerials.PREFIX)) return null // the theme's default still sits under the video
         BUNDLED_WALLPAPERS[choice.removePrefix("res:")]?.let { res ->
             return BitmapFactory.decodeResource(resources, res)
         }
@@ -763,20 +795,7 @@ class MainActivity : Activity() {
         } ?: return null
         // Bing's pictures are often bright daylight, which fights true black: dim them in dark mode.
         if (dark && choice == Bing.CHOICE) Canvas(bmp).drawColor(Color.argb(DARK_DIM, 0, 0, 0))
-        // Same fade as the bundled ones: clear above 28% height, into the background colour by 50%.
-        val h = bmp.height.toFloat()
-        val base = ground and 0x00FFFFFF
-        if (wallpaperFade()) Canvas(bmp).drawRect(0f, 0f, bmp.width.toFloat(), h, Paint().apply {
-            isDither = true
-            shader = LinearGradient(0f, h * 0.28f, 0f, h * 0.5f, base, base or 0xE6000000.toInt(), Shader.TileMode.CLAMP)
-        })
-        // Photos rarely have the bundled ones' empty sky: a soft veil behind the clock and top-bar icons keeps them readable.
-        // Strong over the clock and icons (top ~20%), gone by 30% so the photo still shows above the apps.
-        Canvas(bmp).drawRect(0f, 0f, bmp.width.toFloat(), h * 0.3f, Paint().apply {
-            isDither = true
-            shader = LinearGradient(0f, 0f, 0f, h * 0.3f, intArrayOf(base or 0xC0000000.toInt(), base or 0xA0000000.toInt(), base),
-                floatArrayOf(0f, 0.6f, 1f), Shader.TileMode.CLAMP)
-        })
+        paintShades(Canvas(bmp), bmp.width.toFloat(), bmp.height.toFloat(), ground, wallpaperFade())
         return bmp
     }
 
@@ -800,6 +819,33 @@ class MainActivity : Activity() {
         Bing.dropIfUnused(applicationContext, prefs) // choosing another wallpaper deletes the Bing picture at once
         if (choice == Bing.CHOICE) Bing.refresh(applicationContext, prefs, force = true)
         if (forDark == dark) loadWallpaper()
+    }
+
+    // ---------- aerial video wallpaper (see Aerial.kt) ----------
+
+    private var resumed = false
+    private var aerial: AerialPlayer? = null
+    private var aerialStage: View? = null
+
+    /** Plays the chosen aerial collection behind the home screen while it's in front; no-op if already playing it. */
+    private fun startAerial() {
+        val collection = currentWallpaper().takeIf { it.startsWith(Aerials.PREFIX) }?.removePrefix(Aerials.PREFIX)
+        if (collection == null || !resumed) return stopAerial()
+        if (aerial?.playing == collection) return
+        stopAerial()
+        // Bright daylight footage fights true black, so dark mode dims it like the Bing picture.
+        val shade = Shade(this, ground, if (dark) Color.argb(DARK_DIM, 0, 0, 0) else 0, wallpaperFade())
+        val stage = FrameLayout(this).apply { addView(shade, MATCH_PARENT, MATCH_PARENT) }
+        findViewById<FrameLayout>(R.id.root).addView(stage, 1, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        aerialStage = stage
+        aerial = AerialPlayer(this, stage, shade).also { it.start(collection) }
+    }
+
+    private fun stopAerial() {
+        aerial?.stop()
+        aerial = null
+        aerialStage?.let { (it.parent as? ViewGroup)?.removeView(it) }
+        aerialStage = null
     }
 
     private val bingChanged: () -> Unit = { if (currentWallpaper() == Bing.CHOICE) loadWallpaper() }
@@ -1074,6 +1120,8 @@ class MainActivity : Activity() {
                 refreshWatchNext()
                 renderSettings(R.string.restore_hidden)
             },
+            R.string.plex_account to Triple(getString(R.string.plex_account),
+                if (Plex.signedIn(prefs)) Plex.user(prefs) ?: getString(R.string.plex_signed_in_row) else getString(R.string.plex_sign_in_row)) { plexAccount() },
             R.string.cw_apps to Triple(getString(R.string.cw_apps), if (cwOff == 0) getString(R.string.all_on) else getString(R.string.n_off, cwOff)) { pickWatchSources() },
             // "weather" is off/c/f as before; "wx_unit" keeps the unit while it's off.
             R.string.weather to Triple(getString(R.string.weather), toggle(weather != "off")) {
@@ -1121,7 +1169,7 @@ class MainActivity : Activity() {
                 listOf(R.string.theme, R.string.light_wallpaper, R.string.dark_wallpaper, R.string.photo_fade, R.string.folder_photo_changes)),
             Triple(R.string.section_app_row, "${rows[R.string.apps_in_row]!!.second} · ${rows[R.string.row_position]!!.second}",
                 listOf(R.string.edit_apps_row, R.string.sort_apps, R.string.apps_in_row, R.string.row_position, R.string.app_names, R.string.icon_style)),
-            Triple(R.string.continue_watching, rows[R.string.cw_apps]!!.second, listOf(R.string.cw_apps, R.string.restore_hidden)),
+            Triple(R.string.continue_watching, rows[R.string.cw_apps]!!.second, listOf(R.string.cw_apps, R.string.plex_account, R.string.restore_hidden)),
             Triple(R.string.section_weather, if (weather == "off") on(false) else "${rows[R.string.weather_units]!!.second} · ${rows[R.string.weather_location]!!.second}",
                 listOf(R.string.weather, R.string.weather_units, R.string.weather_location)),
             Triple(R.string.section_screensaver, rows[R.string.screensaver]!!.second, listOf(R.string.screensaver, R.string.test_screensaver, R.string.screensaver_timing)),
@@ -1501,6 +1549,7 @@ class MainActivity : Activity() {
             t.setOnFocusChangeListener { v, focused ->
                 own.onFocusChange(v, focused)
                 if (focused) lastApp = v
+                if (focused) showPlexRow(v.tag == Plex.PKG)
                 showRowLabel(v, focused)
             }
         }
@@ -2149,7 +2198,9 @@ class MainActivity : Activity() {
                 android.util.Log.w("Plume", "update check failed ($e)")
                 null
             }
-            if (latest != null) prefs.edit().putString("upd_ver", latest).putLong("upd_time", System.currentTimeMillis()).apply()
+            // A failed check waits a day too, or a repo with no releases yet is asked on every return to the home screen.
+            prefs.edit().putLong("upd_time", System.currentTimeMillis()).apply()
+            if (latest != null) prefs.edit().putString("upd_ver", latest).apply()
             ui.post {
                 checking = false
                 val ver = availableUpdate()
@@ -2427,8 +2478,9 @@ class MainActivity : Activity() {
     // ---------- continue watching (Android TV Watch Next) ----------
 
     private fun refreshWatchNext() {
+        refreshPlex()
         if (checkSelfPermission(TV_LISTINGS) != PackageManager.PERMISSION_GRANTED) {
-            showWatchNext(emptyList())
+            showGeneralWatch(emptyList())
             return
         }
         io.execute {
@@ -2437,9 +2489,139 @@ class MainActivity : Activity() {
             } catch (e: Exception) {
                 emptyList()
             }
-            ui.post { showWatchNext(list) }
+            ui.post { showGeneralWatch(list) }
         }
     }
+
+    /** The system's Continue Watching; kept while the row shows Plex instead, for when focus leaves Plex. */
+    private var generalWatch = emptyList<Prog>()
+
+    private fun showGeneralWatch(list: List<Prog>) {
+        generalWatch = list
+        if (!rowShowsPlex) showWatchNext(list)
+    }
+
+    // ---------- Plex On Deck (see Plex.kt) ----------
+    // While the Plex tile has focus, the row under the apps shows Plex's On Deck instead of Continue Watching.
+
+    private var plexDeck = emptyList<Prog>()
+    private var rowShowsPlex = false
+
+    private fun refreshPlex() {
+        if (!Plex.signedIn(prefs)) return
+        val hidden = prefs.getStringSet("hidden_watch", emptySet())!!
+        plexIo.execute {
+            val items = try {
+                Plex.onDeck(prefs)
+            } catch (e: Exception) {
+                android.util.Log.w("Plume", "Plex On Deck failed ($e)")
+                return@execute // keep what's shown; offline or plex.tv down
+            }
+            val list = items.filter { hideKey(Plex.PKG, it.title) !in hidden }.map { i ->
+                Prog(i.title, progSub(i.season, i.episode, i.durationMs, i.offsetMs), progPercent(i.durationMs, i.offsetMs), i.image, i.intent, Plex.PKG)
+            }
+            ui.post {
+                plexDeck = list
+                if (rowShowsPlex) if (list.isEmpty()) showPlexRow(false) else showWatchNext(list)
+            }
+        }
+    }
+
+    /** Called as focus lands on a row app: Plex swaps its On Deck in, any other app puts Continue Watching back. */
+    private fun showPlexRow(plex: Boolean) {
+        val want = plex && plexDeck.isNotEmpty()
+        if (want == rowShowsPlex) return
+        rowShowsPlex = want
+        watchTitle.setText(if (want) R.string.plex_on_deck else R.string.continue_watching)
+        showWatchNext(if (want) plexDeck else generalWatch)
+        watchScroll.alpha = 0f
+        watchScroll.animate().alpha(1f).setDuration(200).start()
+    }
+
+    private fun plexAccount() {
+        if (!Plex.signedIn(prefs)) return plexSignIn()
+        showPage(getString(R.string.plex_account), listOf(
+            page(getString(R.string.plex_sign_out)) {
+                Plex.signOut(prefs)
+                plexDeck = emptyList()
+                showPlexRow(false)
+                renderSettings(R.string.plex_account)
+            },
+        )) { renderSettings(R.string.plex_account) }
+    }
+
+    /** plex.tv/link sign-in: show a code, poll Plex until it's been entered on a phone or computer. */
+    private fun plexSignIn() {
+        val code = label("····", 36f).apply { gravity = Gravity.CENTER; letterSpacing = 0.2f }
+        val status = label(getString(R.string.plex_getting_code), 13f).apply { gravity = Gravity.CENTER; maxLines = 2; alpha = 0.7f }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(0, dp(4), 0, dp(12))
+            addView(ImageView(this@MainActivity).apply { setImageBitmap(qrBitmap(Plex.LINK_URL, dp(160))) })
+            addView(label(getString(R.string.plex_link_hint, "plex.tv/link"), 14f).apply {
+                gravity = Gravity.CENTER
+                maxLines = 3
+                setPadding(0, dp(12), 0, dp(8))
+            })
+            addView(code)
+            addView(status.apply { setPadding(0, dp(8), 0, 0) })
+        }
+        var open = true
+        fun start() {
+            plexIo.execute {
+                val pin = try {
+                    Plex.newPin(prefs)
+                } catch (e: Exception) {
+                    ui.post { if (open) status.text = getString(R.string.plex_failed) }
+                    return@execute
+                }
+                val until = SystemClock.elapsedRealtime() + 14 * 60_000L // Plex codes last 15 minutes
+                ui.post {
+                    if (!open) return@post
+                    code.text = pin.code
+                    status.text = getString(R.string.plex_waiting)
+                    plexPoll(pin, until, { open }, ::start)
+                }
+            }
+        }
+        start()
+        showPage(getString(R.string.plex_sign_in_title), listOf(page(getString(R.string.cancel)) { renderSettings(R.string.plex_account) }), top = box) {
+            renderSettings(R.string.plex_account)
+        }
+        pageExit = { open = false }
+    }
+
+    /** Every 2 s while the sign-in page is [open]: done, or ask again; an expired code gets a fresh one ([renew]). */
+    private fun plexPoll(pin: Plex.Pin, until: Long, open: () -> Boolean, renew: () -> Unit) {
+        ui.postDelayed({
+            if (!open()) return@postDelayed
+            if (SystemClock.elapsedRealtime() > until) return@postDelayed renew()
+            plexIo.execute {
+                val done = try {
+                    Plex.claim(prefs, pin)
+                } catch (e: Exception) {
+                    false
+                }
+                ui.post {
+                    if (!open()) return@post
+                    if (!done) return@post plexPoll(pin, until, open, renew)
+                    Toast.makeText(this, getString(R.string.plex_signed_in, Plex.user(prefs) ?: "Plex"), Toast.LENGTH_SHORT).show()
+                    refreshPlex()
+                    renderSettings(R.string.plex_account)
+                }
+            }
+        }, 2000)
+    }
+
+    private fun progSub(season: String?, episode: String?, duration: Long, position: Long) = listOfNotNull(
+        if (season != null && episode != null) getString(R.string.season_episode, season, episode) else null,
+        // Under a second in means "not really started": no "time left", no bar.
+        if (duration > 0 && position in 1000 until duration) timeLeft(duration - position) else null,
+    ).joinToString(" - ")
+
+    private fun progPercent(duration: Long, position: Long) =
+        if (duration > 0 && position >= 1000) (position * 100 / duration).toInt().coerceIn(0, 100) else 0
 
     /**
      * Two sources, same columns:
@@ -2521,12 +2703,8 @@ class MainActivity : Activity() {
                 val episode = str("episode_display_number")
                 val duration = num("duration_millis")
                 val position = num("last_playback_position_millis")
-                val sub = listOfNotNull(
-                    if (season != null && episode != null) getString(R.string.season_episode, season, episode) else null,
-                    // Under a second in means "not really started": no "time left", no bar.
-                    if (duration > 0 && position in 1000 until duration) timeLeft(duration - position) else null,
-                ).joinToString(" - ")
-                val progress = if (duration > 0 && position >= 1000) (position * 100 / duration).toInt().coerceIn(0, 100) else 0
+                val sub = progSub(season, episode, duration, position)
+                val progress = progPercent(duration, position)
                 val prog = Prog(title, sub, progress, str("thumbnail_uri") ?: str("poster_art_uri"), str("intent_uri"), str("package_name"))
                 out += watchSortKey(num("watch_next_type"), num("last_engagement_time_utc_millis")) to prog
             }
@@ -2835,7 +3013,7 @@ class MainActivity : Activity() {
             60 to R.string.every_60, 1440 to R.string.every_1440,
         )
         const val CHOSEN = "✓"
-        const val REPO = "aradhyas8/Plume_Launcher"
+        const val REPO = "aj-tigertms/Plume_Launcher" // this fork's releases, so updates never pull upstream's build over it
         const val UPDATE_STATUS = "dev.plume.UPDATE_STATUS"
         const val WRITE_EPG ="com.android.providers.tv.permission.WRITE_EPG_DATA"
         const val TV_SETTINGS = "com.android.tv.settings"
@@ -2916,6 +3094,12 @@ class MainActivity : Activity() {
             "com.spotify.tv.android" to (R.drawable.logo_spotify to false),
             "org.videolan.vlc" to (R.drawable.logo_vlcmediaplayer to false),
             "com.android.vending" to (R.drawable.logo_googleplay to false),
+            "com.plexapp.android" to (R.drawable.logo_plex to true),
+            "com.nvidia.bbciplayer" to (R.drawable.logo_bbciplayer to false),
+            "air.ITVMobilePlayer" to (R.drawable.logo_itvx to false),
+            "de.eye_interactive.atvl.wwwchannel4co_60829" to (R.drawable.logo_channel4 to false),
+            "net.mullvad.mullvadvpn" to (R.drawable.logo_mullvad to false),
+            "com.wireguard.android" to (R.drawable.logo_wireguard to false),
         )
     }
 }

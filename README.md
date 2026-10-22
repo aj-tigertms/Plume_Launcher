@@ -17,6 +17,14 @@
   <img src="docs/home-dark.jpg" alt="Plume home screen, dark theme" width="49%">
 </p>
 
+> [!NOTE]
+> **This is a personal fork** of [aradhyas8/Plume_Launcher](https://github.com/aradhyas8/Plume_Launcher), built for an NVIDIA SHIELD. It adds:
+> - **Aerial video wallpaper**: Apple TV and Fire TV flyover videos behind the home screen, streamed only while the home screen is open. The video list comes from [Couchy Launcher](https://github.com/conreo/couchy-launcher) (GPL-3.0). Playback uses AndroidX Media3 ExoPlayer, this fork's one library. Apple's video server is trusted through Apple's root certificate for that one host only (`res/xml/network_security.xml`).
+> - **Plex On Deck**: while the Plex tile has focus, the row under the apps shows On Deck from your Plex servers, including remote ones. Sign in once with a plex.tv/link code (**Settings → Continue Watching → Plex On Deck**). Selecting a card opens that episode or film in the Plex app.
+> - Monochrome logos for Plex, BBC iPlayer, ITVX, Channel 4, Mullvad VPN and WireGuard (Simple Icons, CC0).
+>
+> Updates come from this fork's releases, not upstream's.
+
 Plume replaces the cluttered stock home screen with the two things you actually use: your apps and what you were watching. There are no ads, no sponsored rows, no account and no tracking, and it stays out of the way of the apps it launches.
 
 ## Highlights

@@ -32,6 +32,7 @@
         android:label="Plume"
         android:banner="@drawable/banner"
         android:icon="@drawable/banner"
+        android:networkSecurityConfig="@xml/network_security"
         android:usesCleartextTraffic="true"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 

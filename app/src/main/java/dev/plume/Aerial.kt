@@ -2,7 +2,10 @@ package dev.plume
 
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.LinearGradient
 import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Shader
 import android.os.Handler
 import android.os.Looper
 import android.view.TextureView
@@ -164,13 +167,36 @@ internal class AerialPlayer(private val context: Context, private val stage: Fra
 }
 
 /**
- * The shading Plume lays over a picture wallpaper, as a view for wallpapers that aren't a bitmap: an optional
- * [dim] over everything, a soft veil behind the clock and top bar, and (with [fade]) the fade into the
- * ground colour [base] behind the rows.
+ * The shading over a live wallpaper. Lighter than paintShades' for pictures: that one fades into solid ground
+ * colour, which on moving footage reads as a black (or white) wall over half the screen. Here the video stays
+ * visible everywhere; the ground colour [base] only goes on thick enough to keep the clock and the rows legible.
+ * In dark mode that's black and the footage gets a light [dim]; in light mode it's the soft white, under dark text.
  */
 internal class Shade(context: Context, private val base: Int, private val dim: Int, private val fade: Boolean) : View(context) {
+    private val top = Paint().apply { isDither = true }
+    private val bottom = Paint().apply { isDither = true }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        val c = base and 0x00FFFFFF
+        fun a(alpha: Int) = c or (alpha shl 24)
+        top.shader = LinearGradient(0f, 0f, 0f, h * 0.3f, intArrayOf(a(TOP), a(TOP / 2), c), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
+        // Clear down to just above the cards' title, then a scrim behind the rows, a little thicker at the very bottom.
+        bottom.shader = LinearGradient(0f, h * 0.38f, 0f, h.toFloat(), intArrayOf(c, a(ROWS), a(FLOOR)),
+            floatArrayOf(0f, 0.4f, 1f), Shader.TileMode.CLAMP)
+    }
+
     override fun onDraw(canvas: Canvas) {
         if (dim != 0) canvas.drawColor(dim)
-        paintShades(canvas, width.toFloat(), height.toFloat(), base, fade)
+        val w = width.toFloat()
+        val h = height.toFloat()
+        canvas.drawRect(0f, 0f, w, h * 0.3f, top)
+        if (fade) canvas.drawRect(0f, h * 0.38f, w, h, bottom)
+    }
+
+    companion object {
+        const val DIM = 38 // dark mode: black over all the footage (15%)
+        const val TOP = 0x66 // behind the clock and top bar (40%)
+        const val ROWS = 0x80 // behind Continue Watching (50%)
+        const val FLOOR = 0xA6 // behind the apps row (65%)
     }
 }

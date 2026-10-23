@@ -833,8 +833,8 @@ class MainActivity : Activity() {
         if (collection == null || !resumed) return stopAerial()
         if (aerial?.playing == collection) return
         stopAerial()
-        // Bright daylight footage fights true black, so dark mode dims it like the Bing picture.
-        val shade = Shade(this, ground, if (dark) Color.argb(DARK_DIM, 0, 0, 0) else 0, wallpaperFade())
+        // A light touch: the footage is the point. Dark mode dims it a little, so daylight shots don't glare.
+        val shade = Shade(this, ground, if (dark) Color.argb(Shade.DIM, 0, 0, 0) else 0, wallpaperFade())
         val stage = FrameLayout(this).apply { addView(shade, MATCH_PARENT, MATCH_PARENT) }
         findViewById<FrameLayout>(R.id.root).addView(stage, 1, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         aerialStage = stage

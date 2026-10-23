@@ -60,6 +60,7 @@
     <string name="never">Jamais</string>
     <string name="icon_style">Style des icônes</string>
     <string name="colour">Couleur</string>
+    <string name="standard">Standard</string>
     <string name="monochrome">Monochrome</string>
     <string name="restore_hidden">Restaurer les contenus masqués</string>
     <string name="none_hidden">Aucun masqué</string>

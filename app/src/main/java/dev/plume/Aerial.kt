@@ -170,18 +170,22 @@ internal class AerialPlayer(private val context: Context, private val stage: Fra
  * The shading over a live wallpaper. Lighter than paintShades' for pictures: that one fades into solid ground
  * colour, which on moving footage reads as a black (or white) wall over half the screen. Here the video stays
  * visible everywhere; the ground colour [base] only goes on thick enough to keep the clock and the rows legible.
- * In dark mode that's black and the footage gets a light [dim]; in light mode it's the soft white, under dark text.
+ * In dark mode that's black and the footage gets a light [dim]; in light mode ([light]) it's the soft white, under
+ * dark text, and thinner still: white over video reads as haze, where black reads as dusk.
  */
-internal class Shade(context: Context, private val base: Int, private val dim: Int, private val fade: Boolean) : View(context) {
+internal class Shade(context: Context, private val base: Int, private val dim: Int, private val fade: Boolean, light: Boolean = false) : View(context) {
+    private val topA = if (light) LIGHT_TOP else TOP
+    private val rowsA = if (light) LIGHT_ROWS else ROWS
+    private val floorA = if (light) LIGHT_FLOOR else FLOOR
     private val top = Paint().apply { isDither = true }
     private val bottom = Paint().apply { isDither = true }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         val c = base and 0x00FFFFFF
         fun a(alpha: Int) = c or (alpha shl 24)
-        top.shader = LinearGradient(0f, 0f, 0f, h * 0.3f, intArrayOf(a(TOP), a(TOP / 2), c), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
+        top.shader = LinearGradient(0f, 0f, 0f, h * 0.3f, intArrayOf(a(topA), a(topA / 2), c), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
         // Clear down to just above the cards' title, then a scrim behind the rows, a little thicker at the very bottom.
-        bottom.shader = LinearGradient(0f, h * 0.38f, 0f, h.toFloat(), intArrayOf(c, a(ROWS), a(FLOOR)),
+        bottom.shader = LinearGradient(0f, h * 0.38f, 0f, h.toFloat(), intArrayOf(c, a(rowsA), a(floorA)),
             floatArrayOf(0f, 0.4f, 1f), Shader.TileMode.CLAMP)
     }
 
@@ -198,5 +202,8 @@ internal class Shade(context: Context, private val base: Int, private val dim: I
         const val TOP = 0x66 // behind the clock and top bar (40%)
         const val ROWS = 0x80 // behind Continue Watching (50%)
         const val FLOOR = 0xA6 // behind the apps row (65%)
+        const val LIGHT_TOP = 0x40 // light mode: 25%
+        const val LIGHT_ROWS = 0x33 // 20%; the frosted cards carry their own backing
+        const val LIGHT_FLOOR = 0x59 // 35%
     }
 }

@@ -60,6 +60,7 @@
     <string name="never">Never</string>
     <string name="icon_style">Icon style</string>
     <string name="colour">Colour</string>
+    <string name="standard">Standard</string>
     <string name="monochrome">Monochrome</string>
     <string name="restore_hidden">Restore hidden shows</string>
     <string name="none_hidden">None hidden</string>

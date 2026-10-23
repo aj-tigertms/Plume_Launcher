@@ -195,7 +195,9 @@ class Updated : BroadcastReceiver() {
 class MainActivity : Activity() {
 
     /** [offline]: an HDMI port with no signal right now (see inRow). */
-    private class App(val pkg: String, val label: String, val launch: Intent, val icon: Drawable, val offline: Boolean = false)
+    /** [banner]: the app's own Android TV banner (the wide picture the stock launcher shows), if it has one. */
+    private class App(val pkg: String, val label: String, val launch: Intent, val icon: Drawable, val offline: Boolean = false,
+        val banner: Drawable? = null)
     private class Prog(val title: String, val sub: String, val progress: Int, val image: String?, val intent: String?, val pkg: String?)
 
     private val prefs by lazy { getSharedPreferences("home", MODE_PRIVATE) }
@@ -834,7 +836,7 @@ class MainActivity : Activity() {
         if (aerial?.playing == collection) return
         stopAerial()
         // A light touch: the footage is the point. Dark mode dims it a little, so daylight shots don't glare.
-        val shade = Shade(this, ground, if (dark) Color.argb(Shade.DIM, 0, 0, 0) else 0, wallpaperFade())
+        val shade = Shade(this, ground, if (dark) Color.argb(Shade.DIM, 0, 0, 0) else 0, wallpaperFade(), light = !dark)
         val stage = FrameLayout(this).apply { addView(shade, MATCH_PARENT, MATCH_PARENT) }
         findViewById<FrameLayout>(R.id.root).addView(stage, 1, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         aerialStage = stage
@@ -1066,7 +1068,7 @@ class MainActivity : Activity() {
         val cwOff = prefs.getStringSet("cw_off", emptySet())!!.count { pkg -> apps.any { it.pkg == pkg } } // uninstalled ones don't count
         val rowHidden = rowHiddenSet().count { pkg -> apps.any { it.pkg == pkg } }
         val names = rowNames()
-        val colour = colourIcons()
+        val iconStyle = iconStyle()
         // Rows with more than two values also step back with Left; two-value rows flip either way.
         val steps = mutableMapOf<Int, (Int) -> Unit>(
             R.string.theme to { d ->
@@ -1082,6 +1084,11 @@ class MainActivity : Activity() {
                 prefs.edit().putString("names", listOf("focus", "always", "never").step(names, d)).apply()
                 renderApps()
                 renderSettings(R.string.app_names)
+            },
+            R.string.icon_style to { d ->
+                prefs.edit().putString("icon_style", ICON_STYLES.keys.toList().step(iconStyle, d)).remove("colour_icons").apply()
+                renderApps()
+                renderSettings(R.string.icon_style)
             },
         )
         val rows = linkedMapOf<Int, Triple<String, String, () -> Unit>>(
@@ -1109,10 +1116,8 @@ class MainActivity : Activity() {
             R.string.app_names to Triple(getString(R.string.app_names), mapOf("focus" to getString(R.string.on_focus), "always" to getString(R.string.always), "never" to getString(R.string.never))[names]!!) {
                 steps[R.string.app_names]!!(1)
             },
-            R.string.icon_style to Triple(getString(R.string.icon_style), if (colour) getString(R.string.colour) else getString(R.string.monochrome)) {
-                prefs.edit().putBoolean("colour_icons", !colour).apply()
-                renderApps()
-                renderSettings(R.string.icon_style)
+            R.string.icon_style to Triple(getString(R.string.icon_style), getString(ICON_STYLES[iconStyle]!!)) {
+                steps[R.string.icon_style]!!(1)
             },
             R.string.restore_hidden to Triple(getString(R.string.restore_hidden), if (hidden == 0) getString(R.string.none_hidden) else getString(R.string.n_hidden, hidden)) {
                 prefs.edit().remove("hidden_watch").apply()
@@ -1162,7 +1167,7 @@ class MainActivity : Activity() {
                 renderSettings(R.string.lock_layout)
             },
         )
-        for (k in listOf(R.string.sort_apps, R.string.icon_style, R.string.weather_units)) steps[k] = { rows[k]!!.third() }
+        for (k in listOf(R.string.sort_apps, R.string.weather_units)) steps[k] = { rows[k]!!.third() }
         val on = { b: Boolean -> getString(if (b) R.string.on else R.string.off) }
         val sections = listOf(
             Triple(R.string.section_appearance, "${rows[R.string.theme]!!.second} · ${wallpaperName(currentWallpaper(dark))}",
@@ -1458,6 +1463,7 @@ class MainActivity : Activity() {
                     Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
                         .setComponent(ComponentName(a.packageName, a.name)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                     a.loadIcon(pm),
+                    banner = a.loadBanner(pm), // the activity's, else the app's; null if neither has one
                 )
             } + hdmiInputs()
     }
@@ -1565,8 +1571,12 @@ class MainActivity : Activity() {
     /** Home row names: "focus" (under the focused tile only), "always" (in every tile) or "never". */
     private fun rowNames() = prefs.getString("names", "focus")!!
 
-    /** Each app's own shipped icon instead of the mono mark, in the row and All apps. */
-    private fun colourIcons() = prefs.getBoolean("colour_icons", false)
+    /**
+     * "mono" (the theme's mono marks), "colour" (the same marks in each brand's colour) or "standard" (each app's
+     * own TV banner, in full colour, as the stock launcher shows it). "colour_icons" is the older on/off setting.
+     */
+    private fun iconStyle() = prefs.getString("icon_style", null)?.takeIf { it in ICON_STYLES }
+        ?: if (prefs.getBoolean("colour_icons", false)) "colour" else "mono"
 
     /** The home row shows marks only by default (see rowNames); the All apps grid always labels them. */
     private fun appTile(a: App, labeled: Boolean = true): View {
@@ -1574,8 +1584,14 @@ class MainActivity : Activity() {
         val custom = customIcon(a.pkg)
         val name = a.label.takeIf { labeled }
         // Colour mode keeps the same marks, tinted with the brand colour (or the colour the app's icon is mostly).
-        val colour = colourIcons()
+        val style = iconStyle()
+        val colour = style != "mono"
         val t = when {
+            // Standard: the app's own banner across the whole tile (named tiles keep the small icon above the name).
+            style == "standard" && a.banner != null && name == null ->
+                tile(null, a.banner.constantState?.newDrawable(resources) ?: a.banner, false, a.pkg, fill = true) { launch(a) }
+            style == "standard" && !a.pkg.startsWith(HDMI) ->
+                tile(name, a.icon.constantState?.newDrawable(resources) ?: a.icon, false, a.pkg) { launch(a) }
             custom != null -> tile(name, custom, false, a.pkg) { launch(a) }
             a.pkg.startsWith(HDMI) -> tile(name, a.icon, true, a.pkg,
                 tint = BRAND_COLOURS[hdmiIcon(a.label, true)]?.takeIf { colour }) { launch(a) }
@@ -1627,7 +1643,9 @@ class MainActivity : Activity() {
     }
 
     /** White card: logo on top, name underneath. With no label the mark sits alone, centred, at one size. */
-    private fun tile(label: String?, icon: Drawable, mono: Boolean, tag: String, wordmarkInset: Int? = null, tint: Int? = null, onClick: () -> Unit): View {
+    /** [fill]: the picture covers the whole card, edge to edge (an app's banner). */
+    private fun tile(label: String?, icon: Drawable, mono: Boolean, tag: String, wordmarkInset: Int? = null, tint: Int? = null,
+        fill: Boolean = false, onClick: () -> Unit): View {
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -1644,7 +1662,7 @@ class MainActivity : Activity() {
             }
         }
         // Same card as light mode; in dark the marks rest slightly dimmed and brighten with focus.
-        val restLogo = if (dark) 0.8f else 1f
+        val restLogo = if (dark && !fill) 0.8f else 1f
         val restText = if (dark) 0.65f else 1f
         img.alpha = restLogo
         text?.alpha = restText
@@ -1656,7 +1674,9 @@ class MainActivity : Activity() {
         if (text == null) {
             // Icons share one height. Wordmarks sit in a square viewport, so fit them by width instead
             // (crop the empty top and bottom) or they shrink to a sliver.
-            if (wordmarkInset != null) {
+            if (fill) {
+                img.scaleType = ImageView.ScaleType.CENTER_CROP
+            } else if (wordmarkInset != null) {
                 img.scaleType = ImageView.ScaleType.CENTER_CROP
                 img.setPadding(wordmarkInset, 0, wordmarkInset, 0)
             } else {
@@ -2991,6 +3011,7 @@ class MainActivity : Activity() {
         const val HELP_URL = "https://github.com/aradhyas8/Plume_Launcher#home-button-on-android-13-and-newer"
         const val TOGGLE_ON = "\u0000on" // row values drawn as a switch instead of text
         const val TOGGLE_OFF = "\u0000off"
+        val ICON_STYLES = linkedMapOf("mono" to R.string.monochrome, "colour" to R.string.colour, "standard" to R.string.standard)
         const val DARK_DIM = 115 // alpha of the black laid over the Bing picture in dark mode (45%)
         const val PIN_TRIES = 5 // wrong PINs before a 30 s wait
         const val UNLOCKED_MS = 5 * 60_000L

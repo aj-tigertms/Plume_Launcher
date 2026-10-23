@@ -32,6 +32,7 @@ Put changes that are not released under `## Unreleased`. Rename that heading to 
 ## 1.4.3
 
 - **Auto theme follows the sun.** With the **Auto** theme, Plume goes dark 20 minutes after sunset and light at sunrise. Plume uses the weather location. Without a location, Plume uses 19:00 and 7:00.
+- **TiviMate logo.** TiviMate gets a monochrome logo made from its new icon.
 
 ## Unreleased
 

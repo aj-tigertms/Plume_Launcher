@@ -3094,6 +3094,7 @@ class MainActivity : Activity() {
             "xbox" to 0xFF107C10.toInt(),
             "nintendoswitch" to 0xFFE60012.toInt(),
             "com.netflix.ninja" to 0xFFE50914.toInt(),
+            "ar.tvplayer.tv" to 0xFF9DB8FF.toInt(), // the light blue of "tivi"
             "com.stremio.one" to 0xFF8D3DAF.toInt(),
             "io.gh.reisxd.tizentube.cobalt" to 0xFFFF0000.toInt(),
             "com.google.android.youtube.tv" to 0xFFFF0000.toInt(),
@@ -3141,6 +3142,8 @@ class MainActivity : Activity() {
             "de.eye_interactive.atvl.wwwchannel4co_60829" to (R.drawable.logo_channel4 to false),
             "net.mullvad.mullvadvpn" to (R.drawable.logo_mullvad to false),
             "com.wireguard.android" to (R.drawable.logo_wireguard to false),
+            // Not Simple Icons: a white mask cut from TiviMate's own icon (its stacked "tivi mate" lettering).
+            "ar.tvplayer.tv" to (R.drawable.logo_tivimate to false),
         )
     }
 }

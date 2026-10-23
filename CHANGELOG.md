@@ -26,6 +26,8 @@ Put changes that are not released under `## Unreleased`. Rename that heading to 
 - **Apps at the bottom.** The app row is at the bottom of the screen. Continue Watching is above it.
 - **Continue Watching for the selected app.** Select an app in the row. The row above shows only that app's shows and films. An app with nothing to continue shows no row.
 - **Smaller cards.** Each Continue Watching card is one app tile wide, so eight fit across the screen.
+- **Standard icons.** Select **Icon style → Standard**. Each tile shows the app's own colour banner.
+- The aerial video is clearer. Plume puts a lighter shade over it in dark mode and in light mode.
 
 ## Unreleased
 

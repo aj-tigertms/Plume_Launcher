@@ -239,7 +239,7 @@ class MainActivity : Activity() {
     private val packageReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
             appsDirty = true
-            i.data?.schemeSpecificPart?.let { GLYPHS.remove(it); ACCENTS.remove(it) } // an update may bring a new icon
+            i.data?.schemeSpecificPart?.let { GLYPHS.remove(it); ACCENTS.remove(it); BANNER_EDGES.remove(it) } // an update may bring a new icon
         }
     }
 
@@ -1589,7 +1589,7 @@ class MainActivity : Activity() {
         val t = when {
             // Standard: the app's own banner across the whole tile (named tiles keep the small icon above the name).
             style == "standard" && a.banner != null && name == null ->
-                tile(null, a.banner.constantState?.newDrawable(resources) ?: a.banner, false, a.pkg, fill = true) { launch(a) }
+                tile(null, a.banner.constantState?.newDrawable(resources) ?: a.banner, false, a.pkg, fill = bannerEdge(a)) { launch(a) }
             style == "standard" && !a.pkg.startsWith(HDMI) ->
                 tile(name, a.icon.constantState?.newDrawable(resources) ?: a.icon, false, a.pkg) { launch(a) }
             custom != null -> tile(name, custom, false, a.pkg) { launch(a) }
@@ -1643,9 +1643,12 @@ class MainActivity : Activity() {
     }
 
     /** White card: logo on top, name underneath. With no label the mark sits alone, centred, at one size. */
-    /** [fill]: the picture covers the whole card, edge to edge (an app's banner). */
+    /**
+     * [fill]: an app's banner, shown whole across the card's width. Banners are wider (16:9) than the card, so
+     * cropping cut their names off; the strips above and below take [fill], the banner's own edge colour.
+     */
     private fun tile(label: String?, icon: Drawable, mono: Boolean, tag: String, wordmarkInset: Int? = null, tint: Int? = null,
-        fill: Boolean = false, onClick: () -> Unit): View {
+        fill: Int? = null, onClick: () -> Unit): View {
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -1662,7 +1665,7 @@ class MainActivity : Activity() {
             }
         }
         // Same card as light mode; in dark the marks rest slightly dimmed and brighten with focus.
-        val restLogo = if (dark && !fill) 0.8f else 1f
+        val restLogo = if (dark && fill == null) 0.8f else 1f
         val restText = if (dark) 0.65f else 1f
         img.alpha = restLogo
         text?.alpha = restText
@@ -1674,8 +1677,9 @@ class MainActivity : Activity() {
         if (text == null) {
             // Icons share one height. Wordmarks sit in a square viewport, so fit them by width instead
             // (crop the empty top and bottom) or they shrink to a sliver.
-            if (fill) {
-                img.scaleType = ImageView.ScaleType.CENTER_CROP
+            if (fill != null) {
+                img.scaleType = ImageView.ScaleType.FIT_CENTER
+                img.setBackgroundColor(fill)
             } else if (wordmarkInset != null) {
                 img.scaleType = ImageView.ScaleType.CENTER_CROP
                 img.setPadding(wordmarkInset, 0, wordmarkInset, 0)
@@ -1749,6 +1753,21 @@ class MainActivity : Activity() {
             .groupBy { Color.colorToHSV(it, hsv); (hsv[0] / 30).toInt() } // 12 hue buckets
         val top = buckets.values.maxByOrNull { it.size }?.takeIf { it.size > px.size / 20 } ?: return null
         return Color.rgb(top.sumOf { Color.red(it) } / top.size, top.sumOf { Color.green(it) } / top.size, top.sumOf { Color.blue(it) } / top.size)
+    }
+
+    /**
+     * The colour along a banner's top and bottom edges (averaged), to extend it into the card's spare height.
+     * Kept per app like GLYPHS.
+     */
+    private fun bannerEdge(a: App): Int = BANNER_EDGES.getOrPut(a.pkg) {
+        val w = 64
+        val h = 36
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        a.banner?.constantState?.newDrawable(resources)?.apply { setBounds(0, 0, w, h) }?.draw(Canvas(bmp))
+        val px = IntArray(w * 2).also { bmp.getPixels(it, 0, w, 0, 0, w, 1); bmp.getPixels(it, w, w, 0, h - 1, w, 1) }
+        bmp.recycle()
+        val on = px.filter { Color.alpha(it) > 128 }.ifEmpty { return@getOrPut if (dark) DARK_BG else Color.WHITE }
+        Color.rgb(on.sumOf { Color.red(it) } / on.size, on.sumOf { Color.green(it) } / on.size, on.sumOf { Color.blue(it) } / on.size)
     }
 
     /** accent() per app, kept like GLYPHS; the contrast check is per theme, so it runs on every use. */
@@ -3055,6 +3074,8 @@ class MainActivity : Activity() {
         val GLYPHS = HashMap<String, Bitmap?>()
         /** accent() colours by package; null = no clear colour. Main thread only. */
         val ACCENTS = HashMap<String, Int?>()
+        /** bannerEdge() colours by package. Main thread only. */
+        val BANNER_EDGES = HashMap<String, Int>()
 
         /**
          * Colour mode tints for the bundled marks: Simple Icons' brand hex, except where that's too dark to

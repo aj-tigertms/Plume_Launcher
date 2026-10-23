@@ -13,8 +13,8 @@
 </p>
 
 <p align="center">
-  <img src="docs/home-light.jpg" alt="Plume home screen, light theme" width="49%">
-  <img src="docs/home-dark.jpg" alt="Plume home screen, dark theme" width="49%">
+  <img src="docs/home-light-live.jpg" alt="Plume home screen, light theme, over an aerial video" width="49%">
+  <img src="docs/home-dark-live.jpg" alt="Plume home screen, dark theme, over an aerial video" width="49%">
 </p>
 
 > [!NOTE]

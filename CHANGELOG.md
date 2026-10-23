@@ -29,6 +29,10 @@ Put changes that are not released under `## Unreleased`. Rename that heading to 
 - **Standard icons.** Select **Icon style → Standard**. Each tile shows the app's own colour banner.
 - The aerial video is clearer. Plume puts a lighter shade over it in dark mode and in light mode.
 
+## 1.4.3
+
+- **Auto theme follows the sun.** With the **Auto** theme, Plume goes dark 20 minutes after sunset and light at sunrise. Plume uses the weather location. Without a location, Plume uses 19:00 and 7:00.
+
 ## Unreleased
 
 - **Android 8:** Plume opens on Android 8.0 and 8.1. Before, it closed immediately after it opened.

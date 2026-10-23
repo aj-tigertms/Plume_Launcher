@@ -83,10 +83,18 @@ import java.util.Calendar
 import java.util.concurrent.Executors
 import org.json.JSONObject
 
-/** Light/dark from the launcher's theme setting; shared with the Gallery screensaver. */
+/**
+ * Light/dark from the launcher's theme setting; shared with the Gallery screensaver. Auto goes dark at sunset
+ * where the weather's location is known (see Sun.kt), else at 19:00 to 7:00.
+ */
 internal fun prefersDark(prefs: SharedPreferences) = when (prefs.getString("theme", "light")) {
     "dark" -> true
-    "auto" -> Calendar.getInstance().get(Calendar.HOUR_OF_DAY) !in 7..18
+    "auto" -> if (prefs.contains("geo_lat")) {
+        Sun.isDark(prefs.getFloat("geo_lat", 0f).toDouble(), prefs.getFloat("geo_lon", 0f).toDouble(),
+            System.currentTimeMillis(), java.time.ZoneId.systemDefault())
+    } else {
+        Calendar.getInstance().get(Calendar.HOUR_OF_DAY) !in 7..18
+    }
     else -> false
 }
 
@@ -342,7 +350,7 @@ class MainActivity : Activity() {
         ui.post { updateBadge() } // after layout, so the icon has its size
     }
 
-    /** Auto theme flips at 7:00 and 19:00 even while the home screen just sits there. */
+    /** Auto theme flips at sunrise and sunset (or 7:00 and 19:00) even while the home screen just sits there. */
     private val themeTick = object : Runnable {
         override fun run() {
             if (wantDark() != dark) recreate() else ui.postDelayed(this, 60_000L)
